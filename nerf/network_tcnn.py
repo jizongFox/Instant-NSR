@@ -1,8 +1,7 @@
+import tinycudann as tcnn
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
-import tinycudann as tcnn
 from .renderer import NeRFRenderer
 
 
@@ -16,7 +15,7 @@ class NeRFNetwork(NeRFRenderer):
                  num_layers_color=3,
                  hidden_dim_color=64,
                  cuda_ray=False,
-                 curvature_loss = False,
+                 curvature_loss=False,
                  ):
         super().__init__(cuda_ray, curvature_loss)
 
@@ -50,7 +49,7 @@ class NeRFNetwork(NeRFRenderer):
         )
 
         # color network
-        self.num_layers_color = num_layers_color        
+        self.num_layers_color = num_layers_color
         self.hidden_dim_color = hidden_dim_color
 
         self.encoder_dir = tcnn.Encoding(
@@ -75,7 +74,6 @@ class NeRFNetwork(NeRFRenderer):
             },
         )
 
-    
     def forward(self, x, d, bound):
         # x: [B, N, 3], in [-bound, bound]
         # d: [B, N, 3], nomalized in [-1, 1]
@@ -85,7 +83,7 @@ class NeRFNetwork(NeRFRenderer):
         d = d.view(-1, 3)
 
         # sigma
-        x = (x + bound) / (2 * bound) # to [0, 1]
+        x = (x + bound) / (2 * bound)  # to [0, 1]
         x = self.encoder(x)
         h = self.sigma_net(x)
 
@@ -93,16 +91,16 @@ class NeRFNetwork(NeRFRenderer):
         geo_feat = h[..., 1:]
 
         # color
-        d = (d + 1) / 2 # tcnn SH encoding requires inputs to be in [0, 1]
+        d = (d + 1) / 2  # tcnn SH encoding requires inputs to be in [0, 1]
         d = self.encoder_dir(d)
 
-        #p = torch.zeros_like(geo_feat[..., :1]) # manual input padding
+        # p = torch.zeros_like(geo_feat[..., :1]) # manual input padding
         h = torch.cat([d, geo_feat], dim=-1)
         h = self.color_net(h)
-        
+
         # sigmoid activation for rgb
         color = torch.sigmoid(h)
-    
+
         sigma = sigma.view(*prefix)
         color = color.view(*prefix, -1)
 
@@ -114,25 +112,25 @@ class NeRFNetwork(NeRFRenderer):
         prefix = x.shape[:-1]
         x = x.view(-1, 3)
 
-        x = (x + bound) / (2 * bound) # to [0, 1]
+        x = (x + bound) / (2 * bound)  # to [0, 1]
         x = self.encoder(x)
         h = self.sigma_net(x)
 
-        #sigma = torch.exp(torch.clamp(h[..., 0], -15, 15))
+        # sigma = torch.exp(torch.clamp(h[..., 0], -15, 15))
         sigma = F.relu(h[..., 0])
 
         sigma = sigma.view(*prefix)
 
         return sigma
-    
+
     def gradient(self, x, bound):
         prefix = x.shape[:-1]
-        x = x.view(-1,3)
+        x = x.view(-1, 3)
         x.requires_grad_(True)
-        x_ = (x + bound) / (2 * bound) # to [0, 1]
+        x_ = (x + bound) / (2 * bound)  # to [0, 1]
         y = self.encoder(x_)
         y = y.sum(dim=-1, keepdim=True)
-        #y = self.density(x, bound)
+        # y = self.density(x, bound)
 
         d_output = torch.ones_like(y, requires_grad=False, device=y.device)
         gradients = torch.autograd.grad(
@@ -144,4 +142,3 @@ class NeRFNetwork(NeRFRenderer):
             only_inputs=True)[0]
 
         return gradients.unsqueeze(1)
-

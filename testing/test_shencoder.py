@@ -1,13 +1,12 @@
-import time
-import numpy as np
 import torch
 import torch.nn as nn
+
 from shencoder import SHEncoder
 
 
 class SHEncoder_torch(nn.Module):
     def __init__(self, input_dim=3, degree=4):
-    
+
         super().__init__()
 
         self.input_dim = input_dim
@@ -63,8 +62,9 @@ class SHEncoder_torch(nn.Module):
                 xy, yz, xz = x * y, y * z, x * z
                 result[..., 4] = self.C2[0] * xy
                 result[..., 5] = self.C2[1] * yz
-                #result[..., 6] = self.C2[2] * (2.0 * zz - xx - yy)
-                result[..., 6] = self.C2[2] * (3.0 * zz - 1) # xx + yy + zz == 1, but this will lead to different backward gradients, interesting...
+                # result[..., 6] = self.C2[2] * (2.0 * zz - xx - yy)
+                result[..., 6] = self.C2[2] * (
+                            3.0 * zz - 1)  # xx + yy + zz == 1, but this will lead to different backward gradients, interesting...
                 result[..., 7] = self.C2[3] * xz
                 result[..., 8] = self.C2[4] * (xx - yy)
                 if self.degree > 3:
@@ -86,7 +86,8 @@ class SHEncoder_torch(nn.Module):
                         result[..., 23] = self.C4[7] * xz * (xx - 3 * yy)
                         result[..., 24] = self.C4[8] * (xx * (xx - 3 * yy) - yy * (3 * xx - yy))
 
-        return result  
+        return result
+
 
 B = 25600
 C = 3
@@ -95,7 +96,7 @@ degree = 4
 enc1 = SHEncoder_torch(degree=degree).cuda()
 enc2 = SHEncoder(degree=degree).cuda()
 
-x1 = torch.rand(B, 3).cuda() * 2 - 1 # in [-1, 1]
+x1 = torch.rand(B, 3).cuda() * 2 - 1  # in [-1, 1]
 x1 = x1 / (torch.norm(x1, dim=-1, keepdim=True) + 1e-8)
 x1.requires_grad_(True)
 
@@ -109,7 +110,6 @@ starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_t
 
 with torch.no_grad():
     with torch.cuda.amp.autocast(enabled=True):
-
         starter.record()
         y1 = enc1(x1)
         ender.record()

@@ -1,37 +1,29 @@
-from builtins import print
-from operator import index
 import os
-import time
-import glob
-from turtle import down
-import numpy as np
-
-import cv2
-from PIL import Image
-from tqdm import tqdm 
-
-import torch
-import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
-
-from scipy.spatial.transform import Slerp, Rotation
-
 # NeRF dataset
 import json
+import os
+
+import cv2
+import numpy as np
+import torch
+from scipy.spatial.transform import Slerp, Rotation
+from torch.utils.data import Dataset
+from tqdm import tqdm
+
 from .utils import get_rays
+
 
 # ref: https://github.com/NVlabs/instant-ngp/blob/b76004c8cf478880227401ae763be4c02f80b62f/include/neural-graphics-primitives/nerf_loader.h#L50
 def nerf_matrix_to_ngp(pose, aabb, bound):
-
-    scale = max(0.000001,max(max(abs(float(aabb[1][0])-float(aabb[0][0])),
-                                abs(float(aabb[1][1])-float(aabb[0][1]))),
-                                abs(float(aabb[1][2])-float(aabb[0][2]))))
-    scale =  2.0 * bound / scale
+    scale = max(0.000001, max(max(abs(float(aabb[1][0]) - float(aabb[0][0])),
+                                  abs(float(aabb[1][1]) - float(aabb[0][1]))),
+                              abs(float(aabb[1][2]) - float(aabb[0][2]))))
+    scale = 2.0 * bound / scale
 
     offset = [((float(aabb[1][0]) + float(aabb[0][0])) * 0.5) * -scale,
-                ((float(aabb[1][1]) + float(aabb[0][1])) * 0.5) * -scale, 
-                ((float(aabb[1][2]) + float(aabb[0][2])) * 0.5) * -scale]
-    
+              ((float(aabb[1][1]) + float(aabb[0][1])) * 0.5) * -scale,
+              ((float(aabb[1][2]) + float(aabb[0][2])) * 0.5) * -scale]
+
     new_pose = np.array([
         [pose[1, 0], -pose[1, 1], -pose[1, 2], pose[1, 3] * scale + offset[1]],
         [pose[2, 0], -pose[2, 1], -pose[2, 2], pose[2, 3] * scale + offset[2]],
@@ -59,10 +51,10 @@ class NeRFDataset(Dataset):
         # path: the json file path.
 
         self.root_path = path
-        self.type = type # train, val, test
-        self.mode = mode # colmap, blender, llff
+        self.type = type  # train, val, test
+        self.mode = mode  # colmap, blender, llff
         self.downscale = downscale
-        self.preload = preload # preload data into GPU
+        self.preload = preload  # preload data into GPU
 
         # camera radius bound to make sure camera are inside the bounding box.
         self.bound = bound
@@ -77,7 +69,7 @@ class NeRFDataset(Dataset):
 
         with open(transform_path, 'r') as f:
             transform = json.load(f)
-        
+
         frames = transform["frames"]
         frames = sorted(frames, key=lambda d: d['file_path'])
 
@@ -91,7 +83,6 @@ class NeRFDataset(Dataset):
                 f_path = f_path + '.png'
             sample = cv2.imread(f_path, cv2.IMREAD_UNCHANGED)
             self.H, self.W = sample.shape[0] // downscale, sample.shape[1] // downscale
-             
 
         # load intrinsics
         cx = (transform['cx'] / downscale) if 'cx' in transform else (self.W / 2)
@@ -115,30 +106,32 @@ class NeRFDataset(Dataset):
         try:
             self.aabb = transform['aabb']
         except:
-            aabb_scale = 1.0 #transform['aabb_scale']
+            aabb_scale = 1.0  # transform['aabb_scale']
             pts = []
             for f in frames:
-                pts.append(np.array(f['transform_matrix'], dtype=np.float32)[:3,3]) # [4, 4]
+                pts.append(np.array(f['transform_matrix'], dtype=np.float32)[:3, 3])  # [4, 4]
             pts = np.stack(pts, axis=0).astype(np.float32)
 
-            minxyz=np.min(pts, axis=0) * aabb_scale
-            maxxyz=np.max(pts, axis=0) * aabb_scale
+            minxyz = np.min(pts, axis=0) * aabb_scale
+            maxxyz = np.max(pts, axis=0) * aabb_scale
 
             self.aabb = [[minxyz[0], minxyz[1], minxyz[2]],
-                        [maxxyz[0], maxxyz[1], maxxyz[2]]]
+                         [maxxyz[0], maxxyz[1], maxxyz[2]]]
 
         if type == 'test':
             # choose two random poses, and interpolate between.
             f0, f1 = np.random.choice(frames, 2, replace=False)
-            pose0 = nerf_matrix_to_ngp(np.array(f0['transform_matrix'], dtype=np.float32), aabb=self.aabb, bound=bound) # [4, 4]
-            pose1 = nerf_matrix_to_ngp(np.array(f1['transform_matrix'], dtype=np.float32), aabb=self.aabb, bound=bound) # [4, 4]
+            pose0 = nerf_matrix_to_ngp(np.array(f0['transform_matrix'], dtype=np.float32), aabb=self.aabb,
+                                       bound=bound)  # [4, 4]
+            pose1 = nerf_matrix_to_ngp(np.array(f1['transform_matrix'], dtype=np.float32), aabb=self.aabb,
+                                       bound=bound)  # [4, 4]
             rots = Rotation.from_matrix(np.stack([pose0[:3, :3], pose1[:3, :3]]))
             slerp = Slerp([0, 1], rots)
 
             self.poses = []
             self.intrinsics = []
             try:
-                intrinsic = np.array(f0['K'], dtype=np.float32) # [4, 4]
+                intrinsic = np.array(f0['K'], dtype=np.float32)  # [4, 4]
                 intrinsic[:2, :] = intrinsic[:2, :] / downscale
             except:
                 intrinsic = self.intrinsic
@@ -158,11 +151,12 @@ class NeRFDataset(Dataset):
             self.poses = []
             self.images = []
             self.intrinsics = []
-            
+
             for f in tqdm(frames, unit=" views", desc=f"Loading Render Path"):
-                pose = nerf_matrix_to_ngp(np.array(f['transform_matrix'], dtype=np.float32), aabb=self.aabb, bound=bound) # [4, 4]
+                pose = nerf_matrix_to_ngp(np.array(f['transform_matrix'], dtype=np.float32), aabb=self.aabb,
+                                          bound=bound)  # [4, 4]
                 try:
-                    intrinsic = np.array(f['K'], dtype=np.float32) # [4, 4]
+                    intrinsic = np.array(f['K'], dtype=np.float32)  # [4, 4]
                     intrinsic[:2, :] = intrinsic[:2, :] / downscale
                 except:
                     intrinsic = self.intrinsic
@@ -172,7 +166,7 @@ class NeRFDataset(Dataset):
 
             self.poses = np.stack(self.poses, axis=0).astype(np.float32)
             self.intrinsics = np.stack(self.intrinsics, axis=0).astype(np.float32)
-            
+
         else:
             if type == 'train':
                 frame = frames[:]
@@ -182,7 +176,7 @@ class NeRFDataset(Dataset):
             self.poses = []
             self.images = []
             self.intrinsics = []
-            
+
             for f in tqdm(frame, unit=" images", desc=f"Loading Images"):
                 f_path = os.path.join(self.root_path, f['file_path'])
                 if f_path[-4:] != '.png' and f_path[-4:] != '.jpg':
@@ -191,33 +185,34 @@ class NeRFDataset(Dataset):
                 # there are non-exist paths in fox...
                 if not os.path.exists(f_path):
                     continue
-                
-                pose = nerf_matrix_to_ngp(np.array(f['transform_matrix'], dtype=np.float32), aabb=self.aabb, bound=bound) # [4, 4]
+
+                pose = nerf_matrix_to_ngp(np.array(f['transform_matrix'], dtype=np.float32), aabb=self.aabb,
+                                          bound=bound)  # [4, 4]
 
                 try:
-                    intrinsic = np.array(f['K'], dtype=np.float32) # [4, 4]
+                    intrinsic = np.array(f['K'], dtype=np.float32)  # [4, 4]
                     intrinsic[:2, :] = intrinsic[:2, :] / downscale
                 except:
                     intrinsic = self.intrinsic
 
-                image = cv2.imread(f_path, cv2.IMREAD_UNCHANGED) # [H, W, 3] o [H, W, 4]
+                image = cv2.imread(f_path, cv2.IMREAD_UNCHANGED)  # [H, W, 3] o [H, W, 4]
 
                 # add support for the alpha channel as a mask.
-                if image.shape[-1] == 3: 
+                if image.shape[-1] == 3:
                     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                 else:
                     image = cv2.cvtColor(image, cv2.COLOR_BGRA2RGBA)
                 image = cv2.resize(image, (self.W, self.H), interpolation=cv2.INTER_AREA)
-                image = image.astype(np.float32) / 255 # [H, W, 3/4]
+                image = image.astype(np.float32) / 255  # [H, W, 3/4]
 
                 self.poses.append(pose)
                 self.images.append(image)
                 self.intrinsics.append(intrinsic)
-            
+
             self.poses = np.stack(self.poses, axis=0).astype(np.float32)
             self.images = np.stack(self.images, axis=0)
             self.intrinsics = np.stack(self.intrinsics, axis=0).astype(np.float32)
-        
+
         # load image size
         if 'h' in transform and 'w' in transform:
             self.H = int(transform['h']) // downscale
@@ -225,7 +220,7 @@ class NeRFDataset(Dataset):
         else:
             # we have to actually read an image to get H and W later.
             self.H = self.W = None
-        
+
         if preload:
             if type == 'train':
                 self.poses = torch.from_numpy(self.poses).cuda()
@@ -237,7 +232,7 @@ class NeRFDataset(Dataset):
 
     def __len__(self):
         return len(self.poses)
-    
+
     def __getitem__(self, index):
 
         results = {
@@ -257,6 +252,7 @@ class NeRFDataset(Dataset):
             results['image'] = self.images[index]
             return results
 
+
 class RayDataset(Dataset):
     def __init__(self, path, type='train', downscale=1, radius=1, n_test=10):
         super().__init__()
@@ -265,9 +261,8 @@ class RayDataset(Dataset):
         self.path = path
         self.type = type
         self.downscale = downscale
-        self.radius = radius # TODO: generate custom views for test?
-        self.NeRFDataset =  NeRFDataset(self.path, self.type, downscale=self.downscale, radius=self.radius)
-
+        self.radius = radius  # TODO: generate custom views for test?
+        self.NeRFDataset = NeRFDataset(self.path, self.type, downscale=self.downscale, radius=self.radius)
 
         self.all_rays_o = []
         self.all_rays_d = []
@@ -277,37 +272,34 @@ class RayDataset(Dataset):
         for i in range(len(self.NeRFDataset)):
             meta = self.NeRFDataset.__getitem__(i)
 
-            images = torch.from_numpy(meta["image"]) # [H, W, 3/4]
-            poses = torch.from_numpy(meta["pose"]) # [4, 4]
+            images = torch.from_numpy(meta["image"])  # [H, W, 3/4]
+            poses = torch.from_numpy(meta["pose"])  # [4, 4]
             intrinsics = torch.from_numpy(meta["intrinsic"])  # [3, 3]
 
             # sample rays 
             H, W, C = images.shape
-            rays_o, rays_d, inds = get_rays(poses.unsqueeze(0), intrinsics.unsqueeze(0), H, W, -1) #[1, H*W, 3]
-            rgbs = images.reshape(1, -1, C) #[1, H*W, 3/4]
+            rays_o, rays_d, inds = get_rays(poses.unsqueeze(0), intrinsics.unsqueeze(0), H, W, -1)  # [1, H*W, 3]
+            rgbs = images.reshape(1, -1, C)  # [1, H*W, 3/4]
 
             self.all_rays_o.append(rays_o[0])
             self.all_rays_d.append(rays_d[0])
             self.all_inds.append(inds[0])
             self.all_rgbs.append(rgbs[0])
-        
+
         self.all_rays_o = torch.cat(self.all_rays_o, dim=0)
         self.all_rays_d = torch.cat(self.all_rays_d, dim=0)
         self.all_inds = torch.cat(self.all_inds, dim=0)
         self.all_rgbs = torch.cat(self.all_rgbs, dim=0)
 
-
     def __len__(self):
         return len(self.all_rays_o)
 
     def __getitem__(self, index):
-
         results = {
             'rays_o': self.all_rays_o[index],
             'rays_d': self.all_rays_d[index],
             'rgbs': self.all_rgbs[index],
-            'shape' : (self.NeRFDataset.H, self.NeRFDataset.W),
+            'shape': (self.NeRFDataset.H, self.NeRFDataset.W),
             'index': index,
         }
         return results
-     

@@ -1,6 +1,5 @@
-import torch
 import argparse
-import numpy as np
+
 import dearpygui.dearpygui as dpg
 from scipy.spatial.transform import Rotation as R
 
@@ -12,11 +11,11 @@ class OrbitCamera:
     def __init__(self, W, H, r=2, fovy=30):
         self.W = W
         self.H = H
-        self.radius = r # camera distance from center
+        self.radius = r  # camera distance from center
         self.fovy = fovy
-        self.center = np.array([0, 0, 0], dtype=np.float32) # look at this point
-        self.rot = R.from_quat([0, 0, 0, 1]) # scalar last
-        self.up = np.array([0, 1, 0], dtype=np.float32) # need to be normalized!
+        self.center = np.array([0, 0, 0], dtype=np.float32)  # look at this point
+        self.rot = R.from_quat([0, 0, 0, 1])  # scalar last
+        self.up = np.array([0, 1, 0], dtype=np.float32)  # need to be normalized!
 
     # pose
     @property
@@ -31,7 +30,7 @@ class OrbitCamera:
         # translate
         res[:3, 3] -= self.center
         return res
-    
+
     # intrinsics
     @property
     def intrinsics(self):
@@ -41,17 +40,17 @@ class OrbitCamera:
         res[0, 2] = self.W // 2
         res[1, 2] = self.H // 2
         return res
-    
+
     def orbit(self, dx, dy):
         # rotate along camera up/side axis!
-        side = self.rot.as_matrix()[:3, 0] # why this is side --> ? # already normalized.
+        side = self.rot.as_matrix()[:3, 0]  # why this is side --> ? # already normalized.
         rotvec_x = self.up * np.radians(-0.1 * dx)
         rotvec_y = side * np.radians(0.1 * dy)
         self.rot = R.from_rotvec(rotvec_x) * R.from_rotvec(rotvec_y) * self.rot
 
         # wrong: rotate along global x/y axis
-        #self.rot = R.from_euler('xy', [-dy * 0.1, -dx * 0.1], degrees=True) * self.rot
-    
+        # self.rot = R.from_euler('xy', [-dy * 0.1, -dx * 0.1], degrees=True) * self.rot
+
     def scale(self, delta):
         self.radius *= 1.1 ** (-delta)
 
@@ -60,8 +59,7 @@ class OrbitCamera:
         self.center += 0.001 * self.rot.as_matrix()[:3, :3] @ np.array([-dx, -dy, dz])
 
         # wrong: pan in global coordinate system
-        #self.center += 0.001 * np.array([-dx, -dy, dz])
-    
+        # self.center += 0.001 * np.array([-dx, -dy, dz])
 
 
 class NeRFGUI:
@@ -72,22 +70,20 @@ class NeRFGUI:
         self.cam = OrbitCamera(opt.W, opt.H, r=opt.radius)
         self.trainer = trainer
         self.debug = debug
-        self.bg_color = None # rendering bg color (TODO)
+        self.bg_color = None  # rendering bg color (TODO)
         self.training = False
-        self.step = 0 # training step 
+        self.step = 0  # training step
 
         self.render_buffer = np.zeros((self.W, self.H, 3), dtype=np.float32)
-        self.need_update = True # camera moved, should reset accumulation
-        self.spp = 1 # sample per pixel
+        self.need_update = True  # camera moved, should reset accumulation
+        self.spp = 1  # sample per pixel
 
         dpg.create_context()
         self.register_dpg()
         self.test_step()
-        
 
     def __del__(self):
         dpg.destroy_context()
-
 
     def train_step(self):
 
@@ -104,15 +100,15 @@ class NeRFGUI:
         self.need_update = True
 
         dpg.set_value("_log_train_time", f'{t:.4f}ms')
-        dpg.set_value("_log_train_log", f'step = {self.step: 5d}, loss = {outputs["loss"]:.4f}, lr = {outputs["lr"]:.6f}')
+        dpg.set_value("_log_train_log",
+                      f'step = {self.step: 5d}, loss = {outputs["loss"]:.4f}, lr = {outputs["lr"]:.6f}')
 
-    
     def test_step(self):
         # TODO: seems we have to move data from GPU --> CPU --> GPU?
         # TODO: dynamic rendering resolution to keep it fluent.
 
         if self.need_update or self.spp < self.opt.max_spp:
-        
+
             starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
             starter.record()
 
@@ -134,7 +130,6 @@ class NeRFGUI:
             dpg.set_value("_log_spp", self.spp)
             dpg.set_value("_texture", self.render_buffer)
 
-        
     def register_dpg(self):
 
         ### register texture 
@@ -148,8 +143,6 @@ class NeRFGUI:
             dpg.add_image("_texture")
 
         dpg.set_primary_window("_primary_window", True)
-
-
 
         with dpg.window(label="Control", tag="_control_window", width=400, height=250):
 
@@ -166,12 +159,12 @@ class NeRFGUI:
             if self.opt.train:
                 with dpg.group(horizontal=True):
                     dpg.add_text("Train time: ")
-                    dpg.add_text("no data", tag="_log_train_time")                    
+                    dpg.add_text("no data", tag="_log_train_time")
 
             with dpg.group(horizontal=True):
                 dpg.add_text("Infer time: ")
                 dpg.add_text("no data", tag="_log_infer_time")
-            
+
             with dpg.group(horizontal=True):
                 dpg.add_text("SPP: ")
                 dpg.add_text("1", tag="_log_spp")
@@ -199,41 +192,40 @@ class NeRFGUI:
                                 reset_parameters = getattr(m, "reset_parameters", None)
                                 if callable(reset_parameters):
                                     m.reset_parameters()
+
                             self.trainer.model.apply(fn=weight_reset)
                             self.need_update = True
 
                         dpg.add_button(label="reset", tag="_button_reset", callback=callback_reset)
                         dpg.bind_item_theme("_button_reset", theme_button)
 
-
                     with dpg.group(horizontal=True):
                         dpg.add_text("Checkpoint: ")
 
                         def callback_save(sender, app_data):
                             self.trainer.save_checkpoint(full=True, best=False)
-                            self.trainer.epoch += 1 # use epoch to indicate different calls.
-                            dpg.set_value("_log_ckpt", "saved " + os.path.basename(self.trainer.stats["checkpoints"][-1]))
+                            self.trainer.epoch += 1  # use epoch to indicate different calls.
+                            dpg.set_value("_log_ckpt",
+                                          "saved " + os.path.basename(self.trainer.stats["checkpoints"][-1]))
 
                         dpg.add_button(label="save", tag="_button_save", callback=callback_save)
                         dpg.bind_item_theme("_button_save", theme_button)
 
                         dpg.add_text("", tag="_log_ckpt")
 
-
                     with dpg.group(horizontal=True):
                         dpg.add_text("Log: ")
                         dpg.add_text("", tag="_log_train_log")
 
-            
-            
             # rendering options
             with dpg.collapsing_header(label="Options"):
                 # bg_color picker
                 def callback_change_bg(sender, app_data):
-                    self.bg_color = torch.tensor(app_data[:3], dtype=torch.float32) # only need RGB in [0, 1]
+                    self.bg_color = torch.tensor(app_data[:3], dtype=torch.float32)  # only need RGB in [0, 1]
                     self.need_update = True
 
-                dpg.add_color_edit((255, 255, 255), label="Background Color", width=200, tag="_color_editor", no_alpha=True, callback=callback_change_bg)
+                dpg.add_color_edit((255, 255, 255), label="Background Color", width=200, tag="_color_editor",
+                                   no_alpha=True, callback=callback_change_bg)
 
             # debug info
             if self.debug:
@@ -242,7 +234,6 @@ class NeRFGUI:
                     dpg.add_separator()
                     dpg.add_text("Camera Pose:")
                     dpg.add_text(str(self.cam.pose), tag="_log_pose")
-
 
         ### register camera handler
 
@@ -260,7 +251,6 @@ class NeRFGUI:
             if self.debug:
                 dpg.set_value("_log_pose", str(self.cam.pose))
 
-
         def callback_camera_wheel_scale(sender, app_data):
 
             if not dpg.is_item_focused("_primary_window"):
@@ -273,7 +263,6 @@ class NeRFGUI:
 
             if self.debug:
                 dpg.set_value("_log_pose", str(self.cam.pose))
-
 
         def callback_camera_drag_pan(sender, app_data):
 
@@ -289,15 +278,13 @@ class NeRFGUI:
             if self.debug:
                 dpg.set_value("_log_pose", str(self.cam.pose))
 
-
         with dpg.handler_registry():
             dpg.add_mouse_drag_handler(button=dpg.mvMouseButton_Left, callback=callback_camera_drag_rotate)
             dpg.add_mouse_wheel_handler(callback=callback_camera_wheel_scale)
             dpg.add_mouse_drag_handler(button=dpg.mvMouseButton_Middle, callback=callback_camera_drag_pan)
 
-        
         dpg.create_viewport(title='torch-ngp', width=self.W, height=self.H, resizable=False)
-        
+
         # TODO: seems dearpygui doesn't support resizing texture...
         # def callback_resize(sender, app_data):
         #     self.W = app_data[0]
@@ -313,15 +300,14 @@ class NeRFGUI:
                 dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0, category=dpg.mvThemeCat_Core)
                 dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 0, 0, category=dpg.mvThemeCat_Core)
                 dpg.add_theme_style(dpg.mvStyleVar_CellPadding, 0, 0, category=dpg.mvThemeCat_Core)
-        
+
         dpg.bind_item_theme("_primary_window", theme_no_padding)
 
         dpg.setup_dearpygui()
 
-        #dpg.show_metrics()
+        # dpg.show_metrics()
 
         dpg.show_viewport()
-
 
     def render(self):
 
@@ -331,7 +317,6 @@ class NeRFGUI:
                 self.train_step()
             self.test_step()
             dpg.render_dearpygui_frame()
-
 
 
 if __name__ == '__main__':
@@ -351,7 +336,7 @@ if __name__ == '__main__':
     parser.add_argument('--mode', type=str, default='colmap', help="dataset mode, supports (colmap, blender)")
     parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box(-bound, bound)")
     parser.add_argument('--scale', type=float, default=0.33, help="scale camera location into box(-bound, bound)")
-    
+
     parser.add_argument('--radius', type=float, default=3, help="default camera radius from center")
     parser.add_argument('--max_spp', type=int, default=32)
     parser.add_argument('--train', action='store_true', help="train the model through GUI")
@@ -364,15 +349,15 @@ if __name__ == '__main__':
     elif opt.tcnn:
         from nerf.network_tcnn import NeRFNetwork
     else:
-        from nerf.network import NeRFNetwork    
+        from nerf.network import NeRFNetwork
 
     seed_everything(opt.seed)
 
     model = NeRFNetwork(
-        encoding="hashgrid", encoding_dir="sphere_harmonics", 
-        num_layers=2, hidden_dim=64, geo_feat_dim=15, num_layers_color=3, hidden_dim_color=64, 
+        encoding="hashgrid", encoding_dir="sphere_harmonics",
+        num_layers=2, hidden_dim=64, geo_feat_dim=15, num_layers_color=3, hidden_dim_color=64,
         cuda_ray=opt.cuda_ray,
-    )        
+    )
 
     if opt.train:
         train_dataset = NeRFDataset(opt.path, type='train', mode=opt.mode, scale=opt.scale)
@@ -380,11 +365,14 @@ if __name__ == '__main__':
         criterion = torch.nn.SmoothL1Loss()
         optimizer = lambda model: torch.optim.Adam([
             {'name': 'encoding', 'params': list(model.encoder.parameters())},
-            {'name': 'net', 'params': list(model.sigma_net.parameters()) + list(model.color_net.parameters()), 'weight_decay': 1e-6},
+            {'name': 'net', 'params': list(model.sigma_net.parameters()) + list(model.color_net.parameters()),
+             'weight_decay': 1e-6},
         ], lr=1e-2, betas=(0.9, 0.99), eps=1e-15)
-        scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[500, 1000, 1500], gamma=0.33)
-        trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, use_checkpoint='latest')
-        trainer.train_loader = train_loader # attach dataloader to trainer
+        scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[500, 1000, 1500],
+                                                                     gamma=0.33)
+        trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion,
+                          ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, use_checkpoint='latest')
+        trainer.train_loader = train_loader  # attach dataloader to trainer
     else:
         trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, fp16=opt.fp16, use_checkpoint='latest')
 
